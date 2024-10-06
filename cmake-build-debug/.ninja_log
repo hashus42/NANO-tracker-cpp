@@ -1,0 +1,8 @@
+# ninja log v6
+1	5	1728189315840645817	clean	4ebe8ccde69fe4d8
+1	984	1728189319229577017	CMakeFiles/NANO_tracker_cpp.dir/main.cpp.o	1fafcce02be4f18b
+1	1042	1728189319229577017	CMakeFiles/NANO_tracker_cpp.dir/tracker.cpp.o	ce61f97f87b07d93
+1042	1285	1728189320270555882	NANO_tracker_cpp	b2d5fba9bb7bcde1
+2	1002	1728189410384370008	CMakeFiles/NANO_tracker_cpp.dir/tracker.cpp.o	ce61f97f87b07d93
+1	1009	1728189410383370354	CMakeFiles/NANO_tracker_cpp.dir/main.cpp.o	1fafcce02be4f18b
+1009	1236	1728189411391022667	NANO_tracker_cpp	b2d5fba9bb7bcde1
