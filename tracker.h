@@ -17,6 +17,7 @@
 #include <opencv2/tracking.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/features2d.hpp>
 
 class tracker {
 public:
@@ -39,6 +40,8 @@ private:
     cv::Ptr<cv::TrackerNano> tracker_NANO = cv::TrackerNano::create();
     cv::Point2f prevCenter;
     cv::Point2f currentCenter;
+    cv::Mat hist1, hist2;
+    cv::Mat base_rect;
 
     bool init = false;
     bool paused = false;
@@ -50,8 +53,17 @@ private:
     int lostCount = 0;
 
     double distance_moved;
+    double similarity;
 
     std::vector<cv::Point2f> points;
+
+    int histSize = 50;
+    float range[2] = {0, 256};
+    const float* histRange = {range};
+    bool uniform = true;
+    bool accumulate = false;
+
+    cv::KalmanFilter kf = cv::KalmanFilter(4, 2, 0);
 };
 
 

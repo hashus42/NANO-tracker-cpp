@@ -6,6 +6,17 @@
 
 tracker::tracker() {
     cv::namedWindow("NANO_tracker_cpp", cv::WINDOW_AUTOSIZE);
+    kf.transitionMatrix = (cv::Mat_<float>(4, 4) << 1, 0, 1, 0,
+            0, 1, 0, 1,
+            0, 0, 1, 0,
+            0, 0, 0, 1);
+
+    kf.measurementMatrix = (cv::Mat_<float>(2, 4) << 1, 0, 0, 0,
+            0, 1, 0, 0);
+
+    kf.processNoiseCov = cv::Mat::eye(4, 4, CV_32F) * 1e-2;
+    kf.measurementNoiseCov = cv::Mat::eye(2, 2, CV_32F) * 1e-1;
+    kf.errorCovPost = cv::Mat::eye(4, 4, CV_32F);
 }
 
 void tracker::processFrame() {
@@ -32,7 +43,9 @@ void tracker::processFrame() {
             std::cerr << "Roi is empty." << std::endl;
             break;
         } else if (!init) {
+            kf.statePost = (cv::Mat_<float>(4, 1) << roi.x + roi.width / 2, roi.y + roi.height / 2, 0, 0);
             tracker_NANO->init(frame_prc, roi);
+            base_rect = frame_prc(cv::Rect (roi.x, roi.y, roi.width, roi.height));
             init = true;
         }
         try {
@@ -44,6 +57,7 @@ void tracker::processFrame() {
             } else {
                 prev_rect = frame_prc(cv::Rect (roi.x, roi.y, roi.width, roi.height));
             }
+            std::cout << "prev center: (" << prevCenter.x << ", " << prevCenter.y << ")" << std::endl;
             success = tracker_NANO->update(frame_prc, roi);
 
             // after-update roi processes
@@ -54,6 +68,7 @@ void tracker::processFrame() {
             } else {
                 current_rect = frame_prc(cv::Rect (roi.x, roi.y, roi.width, roi.height));
             }
+            std::cout << "current center: (" << currentCenter.x << ", " << currentCenter.y << ")" << std::endl;
 
             // Draw track line
             points.push_back(currentCenter);
@@ -83,15 +98,29 @@ void tracker::processFrame() {
             std::cerr << "Exception: " << e.what() << std::endl;
         }
 
+        cv::waitKey(15);
+
         if (success) {
+            // Measure the observed position
+            cv::Mat measurement = (cv::Mat_<float>(2, 1) << roi.x + roi.width / 2,
+                    roi.y + roi.height / 2);
+            // Kalman Filter prediction and correction
+            kf.correct(measurement);
+            cv::Mat prediction = kf.predict();
+            // Draw the predicted position
+            cv::Point predictedPoint(prediction.at<float>(0), prediction.at<float>(1));
+            cv::circle(frame_show, predictedPoint, 5, cv::Scalar(255, 255, 0), 1);
+            std::cout << "Predicted position: (" << (int)prediction.at<float>(0) << ", " << (int)prediction.at<float>(1) << ")" << std::endl;
+
             distance_moved = calculateDistance(prevCenter, currentCenter);
+            similarityValue(base_rect, current_rect);
             cv::putText(frame_show, "FPS: " + std::to_string((int)fps), cv::Point(10, 30),
                         cv::FONT_HERSHEY_COMPLEX, 1.0, CV_RGB(255, 255, 0));
             cv::putText(frame_show, "Distance moved: " + std::to_string((int)distance_moved) + " pixels", cv::Point(10, 60),
                         cv::FONT_HERSHEY_COMPLEX, 1.0, CV_RGB(0, 0, 0));
             cv::rectangle(frame_show, roi, cv::Scalar(0, 255, 0), 2, 1); // green
             fps = cv::getTickFrequency() / (cv::getTickCount() - time_start);
-
+            // (int)distance_moved == 0 || similarity < 50
             if ((int)distance_moved == 0) {
                 lostCount++;
             }
@@ -102,6 +131,7 @@ void tracker::processFrame() {
                     targetLost = true;
                     paused = true;
                 }
+//                base_rect = current_rect;
                 lostCount = 0;
                 ctr = 0;
             }
@@ -173,9 +203,50 @@ cv::Rect tracker::fixRoi(cv::Rect roi) const {
 }
 
 void tracker::similarityValue(cv::Mat first_rect, cv::Mat second_rect) {
-    cv::cvtColor(first_rect, first_rect, cv::COLOR_BGR2HSV);
-    cv::cvtColor(second_rect, second_rect, cv::COLOR_BGR2HSV);
-    //
+//    cv::Mat hsv_first_rect, hsv_second_rect;
+//    cv::cvtColor(first_rect, hsv_first_rect, cv::COLOR_BGR2HSV);
+//    cv::cvtColor(second_rect, hsv_second_rect, cv::COLOR_BGR2HSV);
+//
+//    std::vector<cv::Mat> hsv_channels_first_rect;
+//    cv::split(hsv_first_rect, hsv_channels_first_rect);
+//    cv::Mat hue_first_rect = hsv_channels_first_rect[0];
+//
+//    std::vector<cv::Mat> hsv_channels_second_rect;
+//    cv::split(hsv_second_rect, hsv_channels_second_rect);
+//    cv::Mat hue_second_rect = hsv_channels_second_rect[0];
+//
+//    cv::calcHist(&hue_first_rect, 1, 0, cv::Mat(), hist1, 1, &histSize, &histRange, uniform, accumulate);
+//    cv::calcHist(&hue_second_rect, 1, 0, cv::Mat(), hist2, 1, &histSize, &histRange, uniform, accumulate);
+//
+//    double baseBase = cv::compareHist(hist1, hist1, cv::HISTCMP_CORREL);
+//    double baseCurrent = cv::compareHist(hist1, hist2, cv::HISTCMP_CORREL);
+//
+//    similarity = (baseCurrent / baseBase) * 100.0;
+//    std::cout << "Similarity: " << similarity << "%" << std::endl;
+
+    // Initialize the ORB detector
+    cv::Ptr<cv::ORB> orb = cv::ORB::create();
+    std::vector<cv::KeyPoint> kp1, kp2;
+    cv::Mat des1, des2;
+
+    // Detect keypoints and compute descriptors
+    orb->detectAndCompute(first_rect, cv::noArray(), kp1, des1);
+    orb->detectAndCompute(second_rect, cv::noArray(), kp2, des2);
+
+    // Check if keypoints were detected in both images
+    if (kp1.empty() || kp2.empty()) {
+        std::cerr << "No keypoints detected in one or both images." << std::endl;
+        return;
+    }
+
+    // BFMatcher with Hamming distance for ORB descriptors
+    cv::BFMatcher bf(cv::NORM_HAMMING, true);
+    std::vector<cv::DMatch> matches;
+    bf.match(des1, des2, matches);
+
+    // Calculate similarity percentage based on matched keypoints
+    float similarity_percentage = (float)matches.size() / std::min(kp1.size(), kp2.size()) * 100.0f;
+    std::cout << "Similarity: " << similarity_percentage << "%" << std::endl;
 }
 
 tracker::~tracker() = default;
